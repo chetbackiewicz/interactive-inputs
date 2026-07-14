@@ -1,0 +1,174 @@
+name: '[Native Inputs] Multi-Job Workflow'
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy-target:
+        description: 'Deployment Target Environment'
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+
+      services:
+        description: 'Services to Deploy (comma-separated: api, frontend, worker, scheduler)'
+        required: true
+        type: string
+        default: 'api,frontend'
+
+      release-notes:
+        description: 'Release Notes - describe what is included in this deployment'
+        required: false
+        type: string
+        default: ''
+
+      run-smoke-tests:
+        description: 'Run Smoke Tests After Deploy?'
+        required: false
+        type: boolean
+        default: true
+
+      max-replicas:
+        description: 'Max Replicas (1-20)'
+        required: false
+        type: string
+        default: '3'
+
+jobs:
+  validate-inputs:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy-target: ${{ steps.set-outputs.outputs.deploy-target }}
+      services: ${{ steps.set-outputs.outputs.services }}
+      release-notes: ${{ steps.set-outputs.outputs.release-notes }}
+      run-smoke-tests: ${{ steps.set-outputs.outputs.run-smoke-tests }}
+      max-replicas: ${{ steps.set-outputs.outputs.max-replicas }}
+      deploy-api: ${{ steps.set-outputs.outputs.deploy-api }}
+      deploy-frontend: ${{ steps.set-outputs.outputs.deploy-frontend }}
+      deploy-worker: ${{ steps.set-outputs.outputs.deploy-worker }}
+      deploy-scheduler: ${{ steps.set-outputs.outputs.deploy-scheduler }}
+    steps:
+      - name: Validate and echo inputs
+        id: set-outputs
+        run: |
+          echo "=========================================="
+          echo "  Input Configuration Summary"
+          echo "=========================================="
+          echo "  Target Environment : ${{ inputs.deploy-target }}"
+          echo "  Services           : ${{ inputs.services }}"
+          echo "  Max Replicas       : ${{ inputs.max-replicas }}"
+          echo "  Run Smoke Tests    : ${{ inputs.run-smoke-tests }}"
+          echo ""
+          echo "  Release Notes:"
+          echo "  ${{ inputs.release-notes }}"
+          echo "=========================================="
+
+          # Validate max-replicas is a number between 1 and 20 (must match the range in the input description above)
+          MAX_REPLICAS="${{ inputs.max-replicas }}"
+          if ! [[ "$MAX_REPLICAS" =~ ^[0-9]+$ ]] || [ "$MAX_REPLICAS" -lt 1 ] || [ "$MAX_REPLICAS" -gt 20 ]; then
+            echo "Error: max-replicas must be a number between 1 and 20. Got: $MAX_REPLICAS"
+            exit 1
+          fi
+
+          # Normalize services: lowercase, strip spaces, and add leading/trailing commas for reliable matching
+          SERVICES=$(echo "${{ inputs.services }}" | tr '[:upper:]' '[:lower:]' | tr -d ' ')
+          SERVICES_PADDED=",$SERVICES,"
+
+          # Pass inputs through as job outputs for downstream jobs
+          echo "deploy-target=${{ inputs.deploy-target }}" >> "$GITHUB_OUTPUT"
+          echo "services=$SERVICES" >> "$GITHUB_OUTPUT"
+          {
+            echo "release-notes<<EOF"
+            echo "${{ inputs.release-notes }}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "run-smoke-tests=${{ inputs.run-smoke-tests }}" >> "$GITHUB_OUTPUT"
+          echo "max-replicas=$MAX_REPLICAS" >> "$GITHUB_OUTPUT"
+
+          # Determine which individual services should be deployed using padded comma matching
+          for SERVICE in api frontend worker scheduler; do
+            if echo "$SERVICES_PADDED" | grep -qF ",$SERVICE,"; then
+              echo "deploy-$SERVICE=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "deploy-$SERVICE=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [validate-inputs]
+    if: ${{ needs.validate-inputs.outputs.services != '' }}
+    steps:
+      - name: Simulate deployment
+        run: |
+          echo "Deploying selected services to ${{ needs.validate-inputs.outputs.deploy-target }}..."
+          echo "Services: ${{ needs.validate-inputs.outputs.services }}"
+          echo "Scaling up to ${{ needs.validate-inputs.outputs.max-replicas }} replicas..."
+          echo "Deployment simulation complete."
+
+  deploy-api:
+    runs-on: ubuntu-latest
+    needs: [validate-inputs]
+    if: ${{ needs.validate-inputs.outputs.deploy-api == 'true' }}
+    steps:
+      - name: Deploy API service
+        run: |
+          echo "Deploying API service to ${{ needs.validate-inputs.outputs.deploy-target }}..."
+          echo "API deployment complete."
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    needs: [validate-inputs]
+    if: ${{ needs.validate-inputs.outputs.deploy-frontend == 'true' }}
+    steps:
+      - name: Deploy Frontend service
+        run: |
+          echo "Deploying Frontend service to ${{ needs.validate-inputs.outputs.deploy-target }}..."
+          echo "Frontend deployment complete."
+
+  deploy-worker:
+    runs-on: ubuntu-latest
+    needs: [validate-inputs]
+    if: ${{ needs.validate-inputs.outputs.deploy-worker == 'true' }}
+    steps:
+      - name: Deploy Worker service
+        run: |
+          echo "Deploying Worker service to ${{ needs.validate-inputs.outputs.deploy-target }}..."
+          echo "Worker deployment complete."
+
+  deploy-scheduler:
+    runs-on: ubuntu-latest
+    needs: [validate-inputs]
+    if: ${{ needs.validate-inputs.outputs.deploy-scheduler == 'true' }}
+    steps:
+      - name: Deploy Scheduler service
+        run: |
+          echo "Deploying Scheduler service to ${{ needs.validate-inputs.outputs.deploy-target }}..."
+          echo "Scheduler deployment complete."
+
+  smoke-tests:
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, deploy, deploy-api, deploy-frontend, deploy-worker, deploy-scheduler]
+    if: ${{ needs.validate-inputs.outputs.run-smoke-tests == 'true' }}
+    steps:
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests against ${{ needs.validate-inputs.outputs.deploy-target }}..."
+          echo "Smoke tests passed."
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: [validate-inputs, deploy]
+    if: always()
+    steps:
+      - name: Deployment summary
+        run: |
+          echo "=========================================="
+          echo "  Deployment Workflow Complete"
+          echo "=========================================="
+          echo "  Environment : ${{ needs.validate-inputs.outputs.deploy-target }}"
+          echo "  Services    : ${{ needs.validate-inputs.outputs.services }}"
+          echo "  Deploy      : ${{ needs.deploy.result }}"
+          echo "=========================================="

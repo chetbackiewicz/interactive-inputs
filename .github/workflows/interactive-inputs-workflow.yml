@@ -1,0 +1,180 @@
+name: '[Interactive Inputs] Multi-Job Workflow'
+
+on:
+  workflow_dispatch:
+
+jobs:
+  gather-inputs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - name: Collect user inputs interactively
+        id: interactive-inputs
+        uses: boasihq/interactive-inputs@v2
+        with:
+          ngrok-authtoken: ${{ secrets.NGROK_AUTHTOKEN }}
+          github-token: ${{ github.token }}
+          timeout: 300
+          title: 'Please provide your deployment configuration'
+          interactive: |
+            fields:
+              - label: deploy-target
+                properties:
+                  display: Deployment Target Environment
+                  type: select
+                  description: Select the environment you want to deploy to
+                  choices:
+                    - development
+                    - staging
+                    - production
+                  required: true
+              - label: services
+                properties:
+                  display: Services to Deploy
+                  type: multiselect
+                  description: Select one or more services to include in this deployment
+                  choices:
+                    ["api", "frontend", "worker", "scheduler"]
+                  required: true
+              - label: release-notes
+                properties:
+                  display: Release Notes
+                  type: textarea
+                  description: Describe what is included in this deployment
+                  placeholder: Enter release notes here...
+                  required: false
+              - label: run-smoke-tests
+                properties:
+                  display: Run Smoke Tests After Deploy?
+                  type: boolean
+                  description: Whether to run smoke tests after the deployment completes
+                  defaultValue: 'true'
+              - label: max-replicas
+                properties:
+                  display: Max Replicas
+                  type: number
+                  description: Maximum number of replicas to scale to (1-20)
+                  minNumber: 1
+                  maxNumber: 20
+                  defaultValue: 3
+                  required: false
+
+      - name: Parse service selections into boolean flags
+        id: parse-services
+        run: |
+          SERVICES="${{ steps.interactive-inputs.outputs.services }}"
+          # Normalize: strip whitespace, remove JSON array brackets/quotes if present
+          SERVICES_CLEAN=$(echo "$SERVICES" | tr -d '[]"' | tr -d ' ')
+          SERVICES_PADDED=",$SERVICES_CLEAN,"
+          for SERVICE in api frontend worker scheduler; do
+            if echo "$SERVICES_PADDED" | grep -qF ",$SERVICE,"; then
+              echo "deploy-$SERVICE=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "deploy-$SERVICE=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
+    outputs:
+      deploy-target: ${{ steps.interactive-inputs.outputs.deploy-target }}
+      services: ${{ steps.interactive-inputs.outputs.services }}
+      release-notes: ${{ steps.interactive-inputs.outputs.release-notes }}
+      run-smoke-tests: ${{ steps.interactive-inputs.outputs.run-smoke-tests }}
+      max-replicas: ${{ steps.interactive-inputs.outputs.max-replicas }}
+      deploy-api: ${{ steps.parse-services.outputs.deploy-api }}
+      deploy-frontend: ${{ steps.parse-services.outputs.deploy-frontend }}
+      deploy-worker: ${{ steps.parse-services.outputs.deploy-worker }}
+      deploy-scheduler: ${{ steps.parse-services.outputs.deploy-scheduler }}
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [gather-inputs]
+    if: ${{ needs.gather-inputs.outputs.deploy-api == 'true' || needs.gather-inputs.outputs.deploy-frontend == 'true' || needs.gather-inputs.outputs.deploy-worker == 'true' || needs.gather-inputs.outputs.deploy-scheduler == 'true' }}
+    steps:
+      - name: Display deployment configuration
+        run: |
+          echo "=========================================="
+          echo "  Deployment Configuration Summary"
+          echo "=========================================="
+          echo "  Target Environment : ${{ needs.gather-inputs.outputs.deploy-target }}"
+          echo "  Services           : ${{ needs.gather-inputs.outputs.services }}"
+          echo "  Max Replicas       : ${{ needs.gather-inputs.outputs.max-replicas }}"
+          echo "  Run Smoke Tests    : ${{ needs.gather-inputs.outputs.run-smoke-tests }}"
+          echo ""
+          echo "  Release Notes:"
+          echo "  ${{ needs.gather-inputs.outputs.release-notes }}"
+          echo "=========================================="
+
+      - name: Simulate deployment
+        run: |
+          echo "Deploying selected services to ${{ needs.gather-inputs.outputs.deploy-target }}..."
+          echo "Services: ${{ needs.gather-inputs.outputs.services }}"
+          echo "Scaling up to ${{ needs.gather-inputs.outputs.max-replicas }} replicas..."
+          echo "Deployment simulation complete."
+
+  deploy-api:
+    runs-on: ubuntu-latest
+    needs: [gather-inputs]
+    if: ${{ needs.gather-inputs.outputs.deploy-api == 'true' }}
+    steps:
+      - name: Deploy API service
+        run: |
+          echo "Deploying API service to ${{ needs.gather-inputs.outputs.deploy-target }}..."
+          echo "API deployment complete."
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    needs: [gather-inputs]
+    if: ${{ needs.gather-inputs.outputs.deploy-frontend == 'true' }}
+    steps:
+      - name: Deploy Frontend service
+        run: |
+          echo "Deploying Frontend service to ${{ needs.gather-inputs.outputs.deploy-target }}..."
+          echo "Frontend deployment complete."
+
+  deploy-worker:
+    runs-on: ubuntu-latest
+    needs: [gather-inputs]
+    if: ${{ needs.gather-inputs.outputs.deploy-worker == 'true' }}
+    steps:
+      - name: Deploy Worker service
+        run: |
+          echo "Deploying Worker service to ${{ needs.gather-inputs.outputs.deploy-target }}..."
+          echo "Worker deployment complete."
+
+  deploy-scheduler:
+    runs-on: ubuntu-latest
+    needs: [gather-inputs]
+    if: ${{ needs.gather-inputs.outputs.deploy-scheduler == 'true' }}
+    steps:
+      - name: Deploy Scheduler service
+        run: |
+          echo "Deploying Scheduler service to ${{ needs.gather-inputs.outputs.deploy-target }}..."
+          echo "Scheduler deployment complete."
+
+  smoke-tests:
+    runs-on: ubuntu-latest
+    needs: [gather-inputs, deploy, deploy-api, deploy-frontend, deploy-worker, deploy-scheduler]
+    if: ${{ needs.gather-inputs.outputs.run-smoke-tests == 'true' }}
+    steps:
+      - name: Run smoke tests
+        run: |
+          echo "Running smoke tests against ${{ needs.gather-inputs.outputs.deploy-target }}..."
+          echo "Smoke tests passed."
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: [gather-inputs, deploy]
+    if: always()
+    steps:
+      - name: Deployment summary
+        run: |
+          echo "=========================================="
+          echo "  Deployment Workflow Complete"
+          echo "=========================================="
+          echo "  Environment : ${{ needs.gather-inputs.outputs.deploy-target }}"
+          echo "  Services    : ${{ needs.gather-inputs.outputs.services }}"
+          echo "  Deploy      : ${{ needs.deploy.result }}"
+          echo "=========================================="
