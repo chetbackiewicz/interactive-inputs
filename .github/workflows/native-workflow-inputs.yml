@@ -99,7 +99,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: [validate-inputs]
-    if: ${{ needs.validate-inputs.outputs.services != '' }}
+    if: ${{ needs.validate-inputs.outputs.deploy-api == 'true' || needs.validate-inputs.outputs.deploy-frontend == 'true' || needs.validate-inputs.outputs.deploy-worker == 'true' || needs.validate-inputs.outputs.deploy-scheduler == 'true' }}
     steps:
       - name: Simulate deployment
         run: |
