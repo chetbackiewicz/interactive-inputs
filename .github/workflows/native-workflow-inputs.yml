@@ -102,10 +102,14 @@ jobs:
     if: ${{ needs.validate-inputs.outputs.deploy-api == 'true' || needs.validate-inputs.outputs.deploy-frontend == 'true' || needs.validate-inputs.outputs.deploy-worker == 'true' || needs.validate-inputs.outputs.deploy-scheduler == 'true' }}
     steps:
       - name: Simulate deployment
+        env:
+          DEPLOY_TARGET: ${{ needs.validate-inputs.outputs.deploy-target }}
+          SERVICES: ${{ needs.validate-inputs.outputs.services }}
+          MAX_REPLICAS: ${{ needs.validate-inputs.outputs.max-replicas }}
         run: |
-          echo "Deploying selected services to ${{ needs.validate-inputs.outputs.deploy-target }}..."
-          echo "Services: ${{ needs.validate-inputs.outputs.services }}"
-          echo "Scaling up to ${{ needs.validate-inputs.outputs.max-replicas }} replicas..."
+          printf 'Deploying selected services to %s...\n' "$DEPLOY_TARGET"
+          printf 'Services: %s\n' "$SERVICES"
+          printf 'Scaling up to %s replicas...\n' "$MAX_REPLICAS"
           echo "Deployment simulation complete."
 
   deploy-api:
@@ -151,7 +155,7 @@ jobs:
   smoke-tests:
     runs-on: ubuntu-latest
     needs: [validate-inputs, deploy, deploy-api, deploy-frontend, deploy-worker, deploy-scheduler]
-    if: ${{ needs.validate-inputs.outputs.run-smoke-tests == 'true' }}
+    if: ${{ always() && !cancelled() && needs.validate-inputs.result == 'success' && needs.deploy.result == 'success' && !contains(needs.*.result, 'failure') && needs.validate-inputs.outputs.run-smoke-tests == 'true' }}
     steps:
       - name: Run smoke tests
         run: |
@@ -164,11 +168,14 @@ jobs:
     if: always()
     steps:
       - name: Deployment summary
+        env:
+          DEPLOY_TARGET: ${{ needs.validate-inputs.outputs.deploy-target }}
+          SERVICES: ${{ needs.validate-inputs.outputs.services }}
         run: |
           echo "=========================================="
           echo "  Deployment Workflow Complete"
           echo "=========================================="
-          echo "  Environment : ${{ needs.validate-inputs.outputs.deploy-target }}"
-          echo "  Services    : ${{ needs.validate-inputs.outputs.services }}"
+          printf '  Environment : %s\n' "$DEPLOY_TARGET"
+          printf '  Services    : %s\n' "$SERVICES"
           echo "  Deploy      : ${{ needs.deploy.result }}"
           echo "=========================================="
