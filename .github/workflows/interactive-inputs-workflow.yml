@@ -9,7 +9,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      actions: write
     steps:
       - name: Collect user inputs interactively
         id: interactive-inputs
@@ -64,10 +63,11 @@ jobs:
 
       - name: Parse service selections into boolean flags
         id: parse-services
+        env:
+          SERVICES: ${{ steps.interactive-inputs.outputs.services }}
         run: |
-          SERVICES="${{ steps.interactive-inputs.outputs.services }}"
           # Normalize: strip whitespace, remove JSON array brackets/quotes if present
-          SERVICES_CLEAN=$(echo "$SERVICES" | tr -d '[]"' | tr -d ' ')
+          SERVICES_CLEAN=$(printf '%s' "$SERVICES" | tr -d '[]"' | tr -d ' ')
           SERVICES_PADDED=",$SERVICES_CLEAN,"
           for SERVICE in api frontend worker scheduler; do
             if echo "$SERVICES_PADDED" | grep -qF ",$SERVICE,"; then
@@ -94,24 +94,34 @@ jobs:
     if: ${{ needs.gather-inputs.outputs.deploy-api == 'true' || needs.gather-inputs.outputs.deploy-frontend == 'true' || needs.gather-inputs.outputs.deploy-worker == 'true' || needs.gather-inputs.outputs.deploy-scheduler == 'true' }}
     steps:
       - name: Display deployment configuration
+        env:
+          DEPLOY_TARGET: ${{ needs.gather-inputs.outputs.deploy-target }}
+          SERVICES: ${{ needs.gather-inputs.outputs.services }}
+          MAX_REPLICAS: ${{ needs.gather-inputs.outputs.max-replicas }}
+          RUN_SMOKE_TESTS: ${{ needs.gather-inputs.outputs.run-smoke-tests }}
+          RELEASE_NOTES: ${{ needs.gather-inputs.outputs.release-notes }}
         run: |
           echo "=========================================="
           echo "  Deployment Configuration Summary"
           echo "=========================================="
-          echo "  Target Environment : ${{ needs.gather-inputs.outputs.deploy-target }}"
-          echo "  Services           : ${{ needs.gather-inputs.outputs.services }}"
-          echo "  Max Replicas       : ${{ needs.gather-inputs.outputs.max-replicas }}"
-          echo "  Run Smoke Tests    : ${{ needs.gather-inputs.outputs.run-smoke-tests }}"
+          printf '  Target Environment : %s\n' "$DEPLOY_TARGET"
+          printf '  Services           : %s\n' "$SERVICES"
+          printf '  Max Replicas       : %s\n' "$MAX_REPLICAS"
+          printf '  Run Smoke Tests    : %s\n' "$RUN_SMOKE_TESTS"
           echo ""
           echo "  Release Notes:"
-          echo "  ${{ needs.gather-inputs.outputs.release-notes }}"
+          printf '  %s\n' "$RELEASE_NOTES"
           echo "=========================================="
 
       - name: Simulate deployment
+        env:
+          DEPLOY_TARGET: ${{ needs.gather-inputs.outputs.deploy-target }}
+          SERVICES: ${{ needs.gather-inputs.outputs.services }}
+          MAX_REPLICAS: ${{ needs.gather-inputs.outputs.max-replicas }}
         run: |
-          echo "Deploying selected services to ${{ needs.gather-inputs.outputs.deploy-target }}..."
-          echo "Services: ${{ needs.gather-inputs.outputs.services }}"
-          echo "Scaling up to ${{ needs.gather-inputs.outputs.max-replicas }} replicas..."
+          printf 'Deploying selected services to %s...\n' "$DEPLOY_TARGET"
+          printf 'Services: %s\n' "$SERVICES"
+          printf 'Scaling up to %s replicas...\n' "$MAX_REPLICAS"
           echo "Deployment simulation complete."
 
   deploy-api:
